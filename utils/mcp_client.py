@@ -44,7 +44,7 @@ class McpClient(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def send_message(self, data: dict) -> dict:
+    def send_message(self, data: dict, headers: dict | None = None) -> dict:
         raise NotImplementedError
 
     def list_tools(self) -> list[dict]:
@@ -66,7 +66,7 @@ class McpClient(ABC):
         logger.info(f"{self.name} - MCP Server tools/list: {tools}")
         return tools
 
-    def call_tool(self, name: str, arguments: dict) -> list[dict]:
+    def call_tool(self, name: str, arguments: dict, headers: dict) -> list[dict]:
         data = {
             "jsonrpc": "2.0",
             "id": self._get_next_id(),
@@ -76,7 +76,7 @@ class McpClient(ABC):
                 "arguments": arguments
             }
         }
-        response = self.send_message(data)
+        response = self.send_message(data, headers=headers)
         if "error" in response:
             error = response["error"]
             raise Exception(f"{self.name} - MCP Server tools/call error: {error}")
@@ -243,17 +243,19 @@ class McpSseClient(McpClient):
             self._error_event.set()
             self._connected.set()
 
-    def send_message(self, data: dict) -> dict:
+    def send_message(self, data: dict, headers: dict | None = None) -> dict:
         if not self.endpoint_url:
             if self._thread_exception:
                 raise ConnectionError(f"{self.name} - MCP Server connection failed: {self._thread_exception}")
             else:
                 raise RuntimeError(f"{self.name} - Please call connect() first")
-        logger.debug(f"{self.name} - Sending client message: {data}")
+        normalized = {k.lower(): v for k, v in (headers or {}).items()}
+        normalized.setdefault("content-type", "application/json")
+        logger.debug(f"{self.name} - Sending client message: {data}, headers: {normalized}")
         response = self.client.post(
             url=self.endpoint_url,
             json=data,
-            headers={"Content-Type": "application/json"},
+            headers=normalized,
             timeout=httpx.Timeout(self.timeout),
             follow_redirects=True,
         )
@@ -590,14 +592,14 @@ class McpClients:
         except Exception as e:
             raise Exception(f"Error fetching tools: {str(e)}")
 
-    def execute_tool(self, tool_name: str, tool_args: dict[str, Any]) -> list[dict]:
+    def execute_tool(self, tool_name: str, tool_args: dict[str, Any], headers: dict[str, str]) -> list[dict]:
         if not self._tool_actions:
             self.fetch_tools()
         if tool_name not in self._tool_actions:
             raise Exception(f"There is not a tool named {tool_name!r}")
         tool_action = self._tool_actions[tool_name]
         server_name = tool_action.server_name
-        logger.info(f"Executing tool! server name: {server_name}, tool name: {tool_name}, tool arguments: {tool_args}")
+        logger.info(f"Executing tool! server name: {server_name}, tool name: {tool_name}, tool arguments: {tool_args}, tool headers: {headers}")
         if server_name not in self._clients:
             raise Exception(f"There is not a MCP Server named {server_name!r}")
         client = self._clients[server_name]
@@ -605,7 +607,7 @@ class McpClients:
         try:
             tool_contents = []
             if action_type == ActionType.TOOL:
-                tool_contents = client.call_tool(tool_name, tool_args)
+                tool_contents = client.call_tool(tool_name, tool_args, headers)
             elif action_type in [ActionType.RESOURCE, ActionType.RESOURCE_TEMPLATE]:
                 if action_type == ActionType.RESOURCE:
                     resource = tool_action.action_feature

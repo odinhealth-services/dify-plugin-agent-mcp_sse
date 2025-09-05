@@ -1,7 +1,7 @@
 import json
 import time
 from collections.abc import Generator, Mapping
-from typing import Any, Optional, cast
+from typing import Any, Optional, cast, Dict
 
 import pydantic
 from dify_plugin.entities.agent import AgentInvokeMessage
@@ -30,12 +30,14 @@ from pydantic import BaseModel
 from output_parser.cot_output_parser import CotAgentOutputParser
 from prompt.template import REACT_PROMPT_TEMPLATES
 from utils.mcp_client import McpClients
+from pydantic import TypeAdapter
 
 ignore_observation_providers = ["wenxin"]
 
 
 class ReActParams(BaseModel):
     query: str
+    headers: str | None
     instruction: str
     model: AgentModelConfig
     tools: list[ToolEntity] | None
@@ -58,6 +60,7 @@ class ReActAgentStrategy(AgentStrategy):
     def __init__(self, runtime, session):
         super().__init__(runtime, session)
         self.query = ""
+        self.headers = ""
         self.instruction = ""
         self.history_prompt_messages = []
         self.prompt_messages_tools = []
@@ -110,6 +113,7 @@ class ReActAgentStrategy(AgentStrategy):
 
         # Init parameters
         self.query = react_params.query
+        self.headers = react_params.headers or ""
         self.instruction = react_params.instruction or self.instruction
         agent_scratchpad = []
         iteration_step = 1
@@ -510,9 +514,19 @@ class ReActAgentStrategy(AgentStrategy):
             if mcp_tool_instance:
                 # invoke MCP tool
                 tool_invoke_parameters = tool_call_args
+                try:
+                    adapter = TypeAdapter(Dict[str, str])
+                    http_headers = adapter.validate_python({
+                        key: str(value) 
+                        for key, value in json.loads(self.headers).items() 
+                        if isinstance(value, (str, int, float, bool)) and value is not None
+                    }) if self.headers else {}
+                except Exception:
+                    http_headers = {}
                 content = mcp_clients.execute_tool(
                     tool_name=tool_call_name,
                     tool_args=tool_invoke_parameters,
+                    headers=http_headers
                 )
                 if len(content) == 1:
                     item = content[0]

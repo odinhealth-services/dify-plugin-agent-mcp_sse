@@ -70,6 +70,15 @@ parameters:
     label:
       en_US: Query
       zh_Hans: 查询
+  - name: headers
+    type: string
+    required: false
+    label:
+      en_US: Headers
+      zh_Hans: HTTP请求头
+    help:
+      en_US: "HTTP headers to be sent with each request to MCP servers. Should be a JSON object string."
+      zh_Hans: "自定义发送到MCP服务的HTTP请求头，支持JSON格式。例：{\"key1\": \"value2\", \"key2\": \"value2\"}"
   - name: maximum_iterations
     type: number
     required: true
