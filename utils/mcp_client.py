@@ -428,7 +428,8 @@ class ToolAction(BaseModel):
 class McpClients:
     def __init__(self, servers_config: dict[str, Any],
                  resources_as_tools: bool = False,
-                 prompts_as_tools: bool = False):
+                 prompts_as_tools: bool = False,
+                 allowed_tools: str | list[str] | None = None):
         if "mcpServers" in servers_config:
             servers_config = servers_config["mcpServers"]
         self._clients = {
@@ -439,7 +440,38 @@ class McpClients:
             client.initialize()
         self._resources_as_tools = resources_as_tools
         self._prompts_as_tools = prompts_as_tools
+        self._allowed_tools = self._normalize_allowed_tools(allowed_tools)
         self._tool_actions: dict[str, ToolAction] = {}
+
+    @staticmethod
+    def _normalize_allowed_tools(allowed_tools: str | list[str] | None) -> set[str] | None:
+        if allowed_tools is None:
+            return None
+        if isinstance(allowed_tools, str):
+            allowed_tools = allowed_tools.strip()
+            if not allowed_tools:
+                return None
+            try:
+                allowed_tools = json.loads(allowed_tools)
+            except json.JSONDecodeError:
+                allowed_tools = [
+                    item.strip()
+                    for item in re.split(r"[\n,]", allowed_tools)
+                    if item.strip()
+                ]
+
+        if not isinstance(allowed_tools, list) or any(not isinstance(item, str) for item in allowed_tools):
+            raise ValueError(
+                "mcp_allowed_tools must be a JSON array of tool names or a comma/newline separated string"
+            )
+
+        normalized_tools = {item.strip() for item in allowed_tools if item.strip()}
+        return normalized_tools or None
+
+    def _is_allowed_tool(self, *tool_names: str) -> bool:
+        if self._allowed_tools is None:
+            return True
+        return any(tool_name in self._allowed_tools for tool_name in tool_names if tool_name)
 
     @staticmethod
     def init_client(name: str, config: dict[str, Any]) -> McpClient:
@@ -472,15 +504,20 @@ class McpClients:
                 tools = client.list_tools()
                 for tool in tools:
                     name = tool["name"]
-                    if name in self._tool_actions:
-                        name = f"{server_name}__{name}"
-                    self._tool_actions[name] = ToolAction(
-                        tool_name=name,
+                    resolved_name = name
+                    if resolved_name in self._tool_actions:
+                        resolved_name = f"{server_name}__{resolved_name}"
+                    if not self._is_allowed_tool(name, resolved_name):
+                        continue
+                    self._tool_actions[resolved_name] = ToolAction(
+                        tool_name=resolved_name,
                         server_name=server_name,
                         action_type=ActionType.TOOL,
                         action_feature=tool,
                     )
-                    all_tools.append(tool)
+                    exposed_tool = dict(tool)
+                    exposed_tool["name"] = resolved_name
+                    all_tools.append(exposed_tool)
 
                 # resources and resources templates list
                 if self._resources_as_tools:
@@ -495,6 +532,8 @@ class McpClients:
                             name = f"{server_name}__{name}"
                         if name in self._tool_actions:
                             name = f"resource__{uuid.uuid4().hex}"
+                        if not self._is_allowed_tool(resource_name, name):
+                            continue
                         resource_description = resource.get("description", "")
                         resource_mime_type = resource.get("mimeType", None)
                         properties = {}
@@ -553,6 +592,8 @@ class McpClients:
                         name = f"prompt__{prompt_name}"
                         if name in self._tool_actions:
                             name = f"{server_name}__{name}"
+                        if not self._is_allowed_tool(prompt_name, name):
+                            continue
                         self._tool_actions[name] = ToolAction(
                             tool_name=name,
                             server_name=server_name,
@@ -607,7 +648,7 @@ class McpClients:
         try:
             tool_contents = []
             if action_type == ActionType.TOOL:
-                tool_contents = client.call_tool(tool_name, tool_args, headers)
+                tool_contents = client.call_tool(tool_action.action_feature["name"], tool_args, headers)
             elif action_type in [ActionType.RESOURCE, ActionType.RESOURCE_TEMPLATE]:
                 if action_type == ActionType.RESOURCE:
                     resource = tool_action.action_feature

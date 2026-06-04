@@ -34,6 +34,15 @@ parameters:
     help:
       en_US: "MCP Servers config, support multiple MCP Server."
       zh_Hans: "MCP服务配置，支持多个MCP服务。"
+  - name: mcp_allowed_tools
+    type: string
+    required: false
+    label:
+      en_US: Allowed MCP Tools
+      zh_Hans: 允许的 MCP 工具
+    help:
+      en_US: "Optional allowlist of MCP tool names. Use a JSON array or comma/newline separated names; leave empty to allow all MCP tools."
+      zh_Hans: "可选的 MCP 工具白名单。支持 JSON 数组或逗号/换行分隔的工具名；留空时允许所有 MCP 工具。"
   - name: mcp_resources_as_tools
     type: boolean
     required: false

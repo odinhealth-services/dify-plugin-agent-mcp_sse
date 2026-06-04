@@ -40,6 +40,7 @@ class FunctionCallingParams(BaseModel):
     model: AgentModelConfig
     tools: list[ToolEntity] | None
     mcp_servers_config: str | None
+    mcp_allowed_tools: str | None = None
     mcp_resources_as_tools: bool = False
     mcp_prompts_as_tools: bool = False
     maximum_iterations: int = 3
@@ -86,6 +87,7 @@ class FunctionCallingAgentStrategy(AgentStrategy):
         mcp_tools = []
         mcp_tool_instances = {}
         mcp_servers_config = fc_params.mcp_servers_config
+        mcp_allowed_tools = fc_params.mcp_allowed_tools
         mcp_resources_as_tools = fc_params.mcp_resources_as_tools
         mcp_prompts_as_tools = fc_params.mcp_prompts_as_tools
         if mcp_servers_config:
@@ -94,7 +96,12 @@ class FunctionCallingAgentStrategy(AgentStrategy):
                 servers_config = json.loads(mcp_servers_config.strip('"'))
             except json.JSONDecodeError as e:
                 raise ValueError(f"mcp_servers_config must be a valid JSON string: {e}")
-            mcp_clients = McpClients(servers_config, mcp_resources_as_tools, mcp_prompts_as_tools)
+            mcp_clients = McpClients(
+                servers_config,
+                mcp_resources_as_tools,
+                mcp_prompts_as_tools,
+                mcp_allowed_tools,
+            )
             mcp_tools = mcp_clients.fetch_tools()
             mcp_tool_instances = {tool.get("name"): tool for tool in mcp_tools} if mcp_tools else {}
 
